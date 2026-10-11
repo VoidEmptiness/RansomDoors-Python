@@ -92,6 +92,13 @@ assets/
 - By default coins are placed in the real `Desktop/Documents/Downloads/Music/Pictures/Videos/Projects` — use `--coin-drawer` for experiments.
 - This is not malware: no encryption, no network, no persistence. Do not use it against other people without their consent.
 
+## Credits
+
+- **Doors** is made by **LSPLASH**. The RANSOM/A-90 entity, its name, look,
+  and concept are their original work — this project is an unofficial fan
+  recreation, not affiliated with or endorsed by LSPLASH. Go play the real
+  game.
+
 [Back to top](#ransomdoors)
 
 ---
@@ -183,5 +190,9 @@ assets/
 - Проект ищет ассеты по нескольким кандидатам (`assets/...`, рядом с кодом) и падает с понятной ошибкой только если нет `downloading.gif` или глитчей.
 - Монеты по умолчанию кладутся в реальные `Desktop/Documents/Downloads/Music/Pictures/Videos/Projects` — для экспериментов используйте `--coin-drawer`.
 - Это не малварь: шифрования, сети и персистентности нет. Не используйте против других людей без их согласия.
+
+### Авторы
+
+- Doors создана LSPLASH. Сущность RANSOM/A-90, её название, внешний вид и концепция — их оригинальная работа; этот проект — неофициальное фанатское воссоздание, не связанное с LSPLASH и не одобренное ею. Поиграйте в настоящую игру.
 
 [Наверх](#ransomdoors)
