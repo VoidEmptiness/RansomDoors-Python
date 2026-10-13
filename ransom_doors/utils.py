@@ -95,21 +95,17 @@ def remove_pidfile():
 
 
 def pick_monitor(display):
-    """Фокусный монитор Hyprland (матчинг по геометрии), иначе как в vignette.
+    """Фокусный монитор (матчинг по геометрии), иначе как в vignette.
 
     get_client_pointer().get_position() на Wayland/GDK отдаёт (screen, 0, 0),
     т.е. всегда выбирался бы монитор в точке 0,0 — поэтому сначала пробуем
-    фокусный монитор через hyprctl.
+    фокусный монитор через API композитора (hyprctl/swaymsg/kscreen/wlr-randr).
+    Кросс-композиторная логика — в platform.focused_monitor_geom().
     """
     want = None
     try:
-        import json
-        import subprocess
-        mons = json.loads(subprocess.check_output(
-            ["hyprctl", "monitors", "-j"], timeout=3).decode())
-        foc = next((m for m in mons if m.get("focused")), None)
-        if foc is not None:
-            want = (foc.get("x"), foc.get("y"), foc.get("width"), foc.get("height"))
+        from .platform import focused_monitor_geom
+        want = focused_monitor_geom()
     except Exception:
         want = None
     if want is not None and None not in want:

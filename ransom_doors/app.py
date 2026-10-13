@@ -66,6 +66,7 @@ class App:
         self.idle_active = False
 
         self.vig_img = None
+        self.vig_imgs = []
         self.vig_pos = (0, 0)
         self.vig = None
         self.vig_gone = {"v": False}
@@ -88,10 +89,12 @@ class App:
         self.coin_state = {"files": [], "dirs": []}
         self.wall = WallpaperManager(disabled=a.no_wallpaper)
         self.loss_gif = None
+        self.using_layershell = False
 
     # ---------- мелкие хелперы ----------
-    def _sprite(self, gif, target_w):
-        return gtkkit.Sprite(self.GdkPixbuf, self.Gtk, gif, target_w, self.W, self.H)
+    def _sprite(self, gif, target_w, cover=False):
+        return gtkkit.Sprite(self.GdkPixbuf, self.Gtk, gif, target_w,
+                             self.W, self.H, cover=cover)
 
     def _fit_static(self, path, max_w):
         return gtkkit.fit_static(self.GdkPixbuf, path, max_w, self.W, self.H)
@@ -177,27 +180,29 @@ class App:
     def hide_vignette(self):
         """Спрятать виньетку (перед thankyou) и не воскрешать."""
         self.vig_gone["v"] = True
-        try:
-            self.fixed.remove(self.vig_img)
-        except Exception:
-            pass
-        try:
-            if self.vig_img is not None:
-                self.vig_img.hide()
-        except Exception:
-            pass
+        for img in list(self.vig_imgs):
+            try:
+                self.fixed.remove(img)
+            except Exception:
+                pass
+            try:
+                img.hide()
+            except Exception:
+                pass
 
     def raise_vignette(self):
         """Виньетка поверх всего: перекладка в конец стека Fixed."""
-        if self.vig_img is None or self.vig_gone["v"]:
+        if not self.vig_imgs or self.vig_gone["v"]:
             return
         try:
-            self.fixed.remove(self.vig_img)
-        except Exception:
-            pass
-        try:
-            self.fixed.put(self.vig_img, self.vig_pos[0], self.vig_pos[1])
-            self.vig_img.show()
+            for img in self.vig_imgs:
+                try:
+                    self.fixed.remove(img)
+                except Exception:
+                    pass
+            for img, (x, y) in zip(self.vig_imgs, self.vig_pos):
+                self.fixed.put(img, x, y)
+                img.show()
         except Exception:
             pass
 
@@ -209,22 +214,73 @@ class App:
         if not vig_gif:
             print("red_vignette.gif не найден — без виньетки", flush=True)
             return
-        self.vig = self._sprite(vig_gif, self.W)
-        vw, vh = self.vig.render()
-        self.vig_pos = ((self.W - vw) // 2, (self.H - vh) // 2)
-        self.vig_img = self.vig.image
-        self.fixed.put(self.vig_img, self.vig_pos[0], self.vig_pos[1])
-        self.vig_img.drag_dest_set(self.Gtk.DestDefaults.ALL, [], self.Gdk.DragAction.COPY)
-        self.vig_img.drag_dest_add_uri_targets()
-        self.vig_img.connect("drag-data-received", self.on_vig_drop)
-        self.vig_img.connect("drag-motion", self.on_vig_motion)
-        self.vig_img.connect("drag-leave", self.on_vig_leave)
+        # Кадр режем по вертикали через центр: левая половина прижата
+        # к левому краю экрана, правая — к правому, высота обеих ровно
+        # экран. При чужом соотношении сторон (виртуалка, ультраширокий)
+        # края всегда закрыты; середина у виньетки прозрачная, стык
+        # незаметен. Один итератор на обе половины — рассинхрона нет.
+        try:
+            anim = self.GdkPixbuf.PixbufAnimation.new_from_file(vig_gif)
+            it = anim.get_iter(None)
+        except Exception as e:
+            print(f"red_vignette.gif не открылся: {e} — без виньетки",
+                  flush=True)
+            return
+        W, H = self.W, self.H
+        interp = self.GdkPixbuf.InterpType.BILINEAR
+        img_l = self.Gtk.Image()
+        img_r = self.Gtk.Image()
+
+        def frame_delay():
+            try:
+                d = int(it.get_delay_time())
+            except Exception:
+                d = 100
+            return d if d and d > 0 else 100
+
+        def paint():
+            """Текущий кадр -> две половинки во всю высоту экрана."""
+            try:
+                pix = it.get_pixbuf()
+                w, h = pix.get_width(), pix.get_height()
+                sw = max(2, int(w * H / max(1, h)))
+                scaled = pix if (sw == w and H == h) else \
+                    pix.scale_simple(sw, H, interp)
+                lw = sw // 2
+                rw = sw - lw
+                img_l.set_from_pixbuf(scaled.new_subpixbuf(0, 0, lw, H))
+                img_r.set_from_pixbuf(scaled.new_subpixbuf(sw - rw, 0, rw, H))
+                img_l.set_size_request(lw, H)
+                img_r.set_size_request(rw, H)
+                return lw, rw
+            except Exception:
+                return None
+
+        first = paint()
+        if first is None:
+            print("red_vignette.gif не рисуется — без виньетки", flush=True)
+            return
+        lw, rw = first
+        self.vig_pos = [(0, 0), (W - rw, 0)]
+        self.vig_imgs = [img_l, img_r]
+        self.vig_img = img_l  # совместимость
+        for img, (x, y) in zip(self.vig_imgs, self.vig_pos):
+            self.fixed.put(img, x, y)
+            img.drag_dest_set(self.Gtk.DestDefaults.ALL, [], self.Gdk.DragAction.COPY)
+            img.drag_dest_add_uri_targets()
+            img.connect("drag-data-received", self.on_vig_drop)
+            img.connect("drag-motion", self.on_vig_motion)
+            img.connect("drag-leave", self.on_vig_leave)
 
         def vig_tick():
             if self.vig_gone["v"]:
                 return False
-            d, _ = self.vig.step()
-            self.GLib.timeout_add(d, vig_tick)
+            try:
+                it.advance(None)
+            except Exception:
+                pass
+            paint()
+            self.GLib.timeout_add(frame_delay(), vig_tick)
             return False
 
         vig_tick()
@@ -632,16 +688,16 @@ class App:
 
     def show_loss_final(self):
         self.play_final(find_first(LOSS_CANDIDATES), max(1, self.a.loss_loops),
-                        "loss-final", self.W)
+                        "loss-final", self.W, cover=True)
         return False
 
-    def play_final(self, tg, loops, label, target_w, framed=False):
+    def play_final(self, tg, loops, label, target_w, framed=False, cover=False):
         if not tg or loops < 1:
             print(f"{label}: нет gif — выхожу", flush=True)
             self.Gtk.main_quit()
             return False
         _, loop_ms = gif_info(tg)
-        spr = self._sprite(tg, min(target_w, self.W))
+        spr = self._sprite(tg, min(target_w, self.W), cover=cover)
         tw, th = spr.render()
         if framed:
             frame, title_lbl, _ = self._make_fake_window(spr.image, tw, th)
@@ -1061,11 +1117,31 @@ class App:
     def _setup_window(self):
         a = self.a
         Gtk, Gdk, GtkLayerShell = self.Gtk, self.Gdk, self.GtkLayerShell
+        try:
+            from .platform import detect_compositor, use_layershell
+            comp = detect_compositor()
+        except Exception:
+            comp = "unknown"
+
+        def _ls_ok():
+            if a.no_fullscreen or GtkLayerShell is None:
+                return False
+            try:
+                from .platform import use_layershell as _use
+                return bool(_use())
+            except Exception:
+                return False
+
+        self.using_layershell = _ls_ok()
         win = Gtk.Window()
         win.set_title(OVERLAY_TITLE)
         win.set_decorated(False)
         win.set_app_paintable(True)
         win.set_skip_taskbar_hint(True)
+        try:
+            win.set_skip_pager_hint(True)
+        except Exception:
+            pass
         if self.click_through and not a.no_fullscreen:
             try:
                 win.set_accept_focus(False)
@@ -1074,11 +1150,98 @@ class App:
                 pass
 
         screen = win.get_screen()
-        win.set_visual(screen.get_rgba_visual())
+        try:
+            visual = screen.get_rgba_visual()
+            # На Mutter без композита get_rgba_visual() может вернуть None —
+            # set_visual(None) даёт как раз чёрный фон вместо прозрачного.
+            if visual is not None and screen.is_composited():
+                win.set_visual(visual)
+                print(f"Прозрачность: composited={screen.is_composited()} rgba=ok",
+                      flush=True)
+            else:
+                print(f"Прозрачность: composited={screen.is_composited()} "
+                      f"rgba={'ok' if visual is not None else 'NONE'} "
+                      f"(риск чёрного фона)", flush=True)
+        except Exception:
+            pass
+        # Важно: прозрачным должен быть и GtkFixed-контейнер, а не только
+        # GtkWindow — иначе Adwaita зальёт фон чёрным (видно на GNOME).
+        # Плюс draw-хендлер ниже: CSS одного недостаточно для Mutter.
         css = Gtk.CssProvider()
-        css.load_from_data(b"window { background-color: transparent; border: none; }")
+        css.load_from_data(b"""
+window, window.background, GtkWindow, .background {
+  background-color: rgba(0, 0, 0, 0);
+  background-image: none;
+  border: none;
+}
+GtkFixed, GtkEventBox, GtkBox {
+  background-color: rgba(0, 0, 0, 0);
+  background-image: none;
+  border: none;
+}
+""")
         Gtk.StyleContext.add_provider_for_screen(
             screen, css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+
+        def _on_draw(w, cr):
+            # Залить окно полной прозрачностью, детей рисовать дальше.
+            try:
+                cairo_mod = self.cairo
+            except Exception:
+                cairo_mod = None
+            try:
+                if cairo_mod is not None:
+                    cr.set_operator(cairo_mod.OPERATOR_SOURCE)
+                cr.set_source_rgba(0, 0, 0, 0)
+                cr.paint()
+                if cairo_mod is not None:
+                    cr.set_operator(cairo_mod.OPERATOR_OVER)
+            except Exception:
+                pass
+            return False
+
+        try:
+            win.connect("draw", _on_draw)
+        except Exception:
+            pass
+
+        def _on_realize(w):
+            # Mutter/KWin снимают fullscreen-окна с композита (unredirect)
+            # ради производительности — альфа при этом игнорируется и
+            # прозрачные места становятся чёрными (в оконном режиме всё ок).
+            # Явно просим композитить и в fullscreen.
+            try:
+                gw = w.get_window()
+                if gw is not None and hasattr(gw, "set_bypass_compositor"):
+                    gw.set_bypass_compositor(False)
+                    print("Прозрачность: bypass_compositor=False запрошен",
+                          flush=True)
+                else:
+                    print("Прозрачность: set_bypass_compositor недоступен",
+                          flush=True)
+            except Exception as e:
+                print(f"Прозрачность: bypass не удался: {e}", flush=True)
+
+        try:
+            win.connect("realize", _on_realize)
+        except Exception:
+            pass
+
+        def _on_alloc(w, alloc):
+            # Живая синхронизация layout с реальным окном: на maximize-фолбэке
+            # и при смене разрешения гостя аллокация != геометрии монитора,
+            # без этого спрайты уезжают за края.
+            try:
+                if alloc.width > 0 and alloc.height > 0 and \
+                        (alloc.width, alloc.height) != (self.W, self.H):
+                    self.W, self.H = alloc.width, alloc.height
+            except Exception:
+                pass
+
+        try:
+            win.connect("size-allocate", _on_alloc)
+        except Exception:
+            pass
         ransom_css = Gtk.CssProvider()
         ransom_css.load_from_data(b"""
 #ransom-root { background-color: #f82b1c; }
@@ -1092,26 +1255,99 @@ class App:
             screen, ransom_css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
 
         if not a.no_fullscreen:
-            GtkLayerShell.init_for_window(win)
-            GtkLayerShell.set_layer(win, GtkLayerShell.Layer.OVERLAY)
-            for edge in (GtkLayerShell.Edge.TOP, GtkLayerShell.Edge.BOTTOM,
-                         GtkLayerShell.Edge.LEFT, GtkLayerShell.Edge.RIGHT):
-                GtkLayerShell.set_anchor(win, edge, True)
-            GtkLayerShell.set_exclusive_zone(win, -1)
-            GtkLayerShell.set_namespace(win, LAYER_NAMESPACE)
-            GtkLayerShell.set_keyboard_mode(
-                win, GtkLayerShell.KeyboardMode.NONE if self.click_through
-                else GtkLayerShell.KeyboardMode.ON_DEMAND)
             display = Gdk.Display.get_default()
             monitor = pick_monitor(display)
             geo = monitor.get_geometry()
-            print(f"Монитор: x={geo.x} y={geo.y} {geo.width}x{geo.height}", flush=True)
-            GtkLayerShell.set_monitor(win, monitor)
+            # GNOME/Mutter: настоящий fullscreen снимается с композита
+            # (unredirect) — прозрачность превращается в чёрный фон.
+            # Там по умолчанию берём maximize: развёрнутое окно без рамок
+            # всегда композитится. Явно переключается --fullscreen-mode.
+            mode = (getattr(a, "fullscreen_mode", "auto") or "auto").lower()
+            if mode not in ("auto", "fullscreen", "maximize"):
+                mode = "auto"
+            if mode == "auto":
+                eff = "maximize" if comp in ("gnome", "mutter") else "fullscreen"
+            else:
+                eff = mode
+            backend_label = ('layer-shell' if self.using_layershell
+                             else f"fullscreen-{eff}")
+            print(f"Монитор: x={geo.x} y={geo.y} {geo.width}x{geo.height} "
+                  f"(backend={backend_label}, "
+                  f"compositor={comp})", flush=True)
             W, H = geo.width, geo.height
             win.set_default_size(W, H)
+            if self.using_layershell:
+                GtkLayerShell.init_for_window(win)
+                GtkLayerShell.set_layer(win, GtkLayerShell.Layer.OVERLAY)
+                for edge in (GtkLayerShell.Edge.TOP, GtkLayerShell.Edge.BOTTOM,
+                             GtkLayerShell.Edge.LEFT, GtkLayerShell.Edge.RIGHT):
+                    GtkLayerShell.set_anchor(win, edge, True)
+                GtkLayerShell.set_exclusive_zone(win, -1)
+                GtkLayerShell.set_namespace(win, LAYER_NAMESPACE)
+                GtkLayerShell.set_keyboard_mode(
+                    win, GtkLayerShell.KeyboardMode.NONE if self.click_through
+                    else GtkLayerShell.KeyboardMode.ON_DEMAND)
+                GtkLayerShell.set_monitor(win, monitor)
+            else:
+                # GNOME/KDE/COSMIC/X11: обычный fullscreen поверх всего.
+                # Layer-shell тут нет — эмулируем: без рамок, сверху,
+                # на всех рабочих столах, без таскбара.
+                # TypeHint именно SPLASHSCREEN: DOCK на Mutter трактуется
+                # как панель и красится непрозрачно (чёрный фон).
+                try:
+                    win.set_type_hint(Gdk.WindowTypeHint.SPLASHSCREEN)
+                except Exception:
+                    pass
+                try:
+                    win.stick()
+                except Exception:
+                    pass
+                try:
+                    win.set_keep_above(True)
+                except Exception:
+                    pass
+                # Fullscreen строго на выбранный монитор: win.move() под
+                # Wayland игнорируется композитором, а plain fullscreen()
+                # встаёт на текущий — на мультимониторе это другой экран.
+                # eff=maximize (дефолт на GNOME): развёрнутое без рамок —
+                # композитится всегда, прозрачность цела; сверху остаётся
+                # видна панель, геометрию подтянет size-allocate выше.
+                if eff == "maximize":
+                    try:
+                        win.maximize()
+                    except Exception:
+                        try:
+                            win.fullscreen()
+                        except Exception:
+                            pass
+                else:
+                    try:
+                        mon_n = 0
+                        try:
+                            for i in range(screen.get_n_monitors()):
+                                m = screen.get_monitor(i)
+                                if m is not None:
+                                    g = m.get_geometry()
+                                    if (g.x, g.y, g.width, g.height) == \
+                                            (geo.x, geo.y, geo.width, geo.height):
+                                        mon_n = i
+                                        break
+                        except Exception:
+                            mon_n = 0
+                        win.fullscreen_on_monitor(screen, mon_n)
+                    except Exception:
+                        try:
+                            win.move(geo.x, geo.y)
+                        except Exception:
+                            pass
+                        try:
+                            win.fullscreen()
+                        except Exception:
+                            pass
         else:
             W, H = 960, 540
             win.set_default_size(W, H)
+            self.using_layershell = False
         self.W, self.H = W, H
         self.win = win
         self.fixed = Gtk.Fixed()
@@ -1184,7 +1420,7 @@ class App:
             self.start_stage1()
         else:
             self._loss_n, self._loss_loop_ms = gif_info(self.loss_gif)
-            self._loss = self._sprite(self.loss_gif, self.W)
+            self._loss = self._sprite(self.loss_gif, self.W, cover=True)
             lw, lh = self._loss.render()
             self._loss_image = self._loss.image
             self.fixed.put(self._loss.image, (self.W - lw) // 2, (self.H - lh) // 2)
@@ -1202,6 +1438,22 @@ class App:
                   f"({max(1, a.loss_loops)} цикла), затем этап 1", flush=True)
 
         self.win.show_all()
+
+        # Диагностика геометрии: если аллокация != layout, спрайты уедут
+        # за края (видно на виртуалках со скейлом/нестандартным разрешением).
+        try:
+            def _log_alloc():
+                try:
+                    al = self.win.get_allocation()
+                    print(f"Окно: alloc={al.width}x{al.height} "
+                          f"vs layout={self.W}x{self.H}", flush=True)
+                except Exception:
+                    pass
+                return False
+
+            self.GLib.timeout_add(500, _log_alloc)
+        except Exception:
+            pass
 
         if self.click_through and not a.no_fullscreen:
             self.pin_click_through(force=True)

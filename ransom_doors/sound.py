@@ -19,10 +19,10 @@ class SoundEngine:
     def init(self):
         if self.disabled:
             return
-        eng = ("ffplay" if shutil.which("ffplay")
-               else "paplay" if shutil.which("paplay") else None)
+        eng = (next((e for e in ("ffplay", "pw-play", "paplay", "aplay")
+                     if shutil.which(e)), None))
         if eng is None:
-            print("звук: нет ffplay/paplay — выкл", flush=True)
+            print("звук: нет ffplay/pw-play/paplay/aplay — выкл", flush=True)
             return
         found = 0
         for key, name in SOUND_FILES.items():
@@ -56,6 +56,14 @@ class SoundEngine:
             if self.engine == "ffplay":
                 proc = subprocess.Popen(["ffplay", "-nodisp", "-autoexit",
                                          "-loglevel", "error", p],
+                                        stdout=subprocess.DEVNULL,
+                                        stderr=subprocess.DEVNULL)
+            elif self.engine == "pw-play":
+                proc = subprocess.Popen(["pw-play", p],
+                                        stdout=subprocess.DEVNULL,
+                                        stderr=subprocess.DEVNULL)
+            elif self.engine == "aplay":
+                proc = subprocess.Popen(["aplay", "-q", p],
                                         stdout=subprocess.DEVNULL,
                                         stderr=subprocess.DEVNULL)
             else:

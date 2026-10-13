@@ -5,19 +5,25 @@ from .config import TITLE_H, WINDOW_TITLES
 def ensure_gtk():
     import gi
     gi.require_version('Gtk', '3.0')
-    gi.require_version('GtkLayerShell', '0.1')
     gi.require_version('GdkPixbuf', '2.0')
-    from gi.repository import Gtk, Gdk, GtkLayerShell, GdkPixbuf, GLib, Pango
+    try:
+        gi.require_version('GtkLayerShell', '0.1')
+        from gi.repository import GtkLayerShell
+    except Exception:
+        GtkLayerShell = None  # GNOME/KDE/COSMIC или нет биндинга — фолбэк ниже
+    from gi.repository import Gtk, Gdk, GdkPixbuf, GLib, Pango
     import cairo
     return Gtk, Gdk, GtkLayerShell, GdkPixbuf, GLib, Pango, cairo
 
 
 class Sprite:
-    def __init__(self, GdkPixbuf, Gtk, gif, target_w, screen_w, screen_h):
+    def __init__(self, GdkPixbuf, Gtk, gif, target_w, screen_w, screen_h,
+                 cover=False):
         self._GdkPixbuf = GdkPixbuf
         self._Gtk = Gtk
         self._W = screen_w
         self._H = screen_h
+        self.cover = bool(cover)
         self.anim = GdkPixbuf.PixbufAnimation.new_from_file(gif)
         self.iter = self.anim.get_iter(None)
         self.image = Gtk.Image()
@@ -27,6 +33,11 @@ class Sprite:
     def size_for(self, pix):
         W, H = self._W, self._H
         w, h = pix.get_width(), pix.get_height()
+        if self.cover:
+            # Залить экран целиком без искажения пропорций: масштаб по
+            # большей стороне, лишнее обрежется по центру в render().
+            s = max(W / max(1, w), H / max(1, h))
+            return max(1, int(w * s + 0.5)), max(1, int(h * s + 0.5))
         tw = self.target_w or w
         tw = min(tw, W)
         th = max(1, int(h * tw / max(1, w)))
@@ -39,6 +50,13 @@ class Sprite:
         tw, th = self.size_for(pix)
         if (tw, th) != (pix.get_width(), pix.get_height()):
             pix = pix.scale_simple(tw, th, self._GdkPixbuf.InterpType.BILINEAR)
+        if self.cover:
+            # Центрокроп ровно под экран (tw>=W, th>=H гарантировано).
+            x, y = (tw - self._W) // 2, (th - self._H) // 2
+            if (tw, th) != (self._W, self._H):
+                pix = pix.new_subpixbuf(x, y, self._W, self._H)
+            self.image.set_from_pixbuf(pix)
+            return self._W, self._H
         self.image.set_from_pixbuf(pix)
         return tw, th
 

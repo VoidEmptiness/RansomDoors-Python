@@ -100,6 +100,13 @@ def build_parser():
                     help="оверлей ловит клики/клавиатуру (Esc/правый клик закрывают)")
     ap.add_argument("--no-fullscreen", action="store_true",
                     help="обычное окно 960x540 вместо оверлея (отладка)")
+    ap.add_argument("--fullscreen-mode", choices=("auto", "fullscreen", "maximize"),
+                    default="auto",
+                    help="fullscreen-фолбэк (без layer-shell): fullscreen — настоящий "
+                         "фулскрин (на GNOME/Mutter может дать чёрный фон из-за "
+                         "unredirect), maximize — развёрнутое окно без рамок "
+                         "(прозрачность сохраняется, сверху видна панель). "
+                         "auto: на gnome/mutter — maximize, иначе fullscreen.")
     ap.add_argument("--no-idle", action="store_true",
                     help="пропустить стартовую засаду ransom_idle.png, сразу основной скрипт")
     ap.add_argument("--idle-timeout", type=float, default=30,

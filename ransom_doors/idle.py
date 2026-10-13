@@ -13,32 +13,25 @@
 - если idle-timeout сек нет никакой активности (ни мыши, ни клавиш) —
   возвращается False (скрипт выключается).
 
-Мышь отслеживается глобально через `hyprctl cursorpos` (фоновый поток,
-ничего не блокирует). Клавиатура — через key-press-event оверлея
+Мышь отслеживается глобально через API композитора (фоновый поток,
+ничего не блокирует): hyprctl cursorpos (Hyprland), swaymsg (Sway),
+xdotool (X11). Клавиатура — через key-press-event оверлея
 (GtkLayerShell EXCLUSIVE на время засады, потом режим возвращается;
 указатель при этом пропускается сквозь окно 1x1 input-shape).
-Без hyprctl — запасной опрос указателя через GDK в главном потоке.
+Без внешнего API — запасной опрос указателя через GDK в главном потоке.
 """
-import shutil
 import signal
-import subprocess
 import threading
 import time
 
 from .config import RANSOM_FACE_CANDIDATES
+from .platform import cursor_backend_name, get_cursor_pos
 from .utils import find_first
 
 
 def _hypr_pos():
-    try:
-        r = subprocess.run(["hyprctl", "cursorpos"],
-                           capture_output=True, text=True, timeout=2)
-        if r.returncode != 0:
-            return None
-        x, y = r.stdout.strip().split(",")
-        return (int(x.strip()), int(y.strip()))
-    except Exception:
-        return None
+    """Совместимость: раньше idle опрашивал только hyprctl напрямую."""
+    return get_cursor_pos()
 
 
 def run_idle_ambush(app):
@@ -167,10 +160,13 @@ def run_idle_ambush(app):
         except Exception:
             return None
 
-    use_hypr = shutil.which("hyprctl") is not None and _hypr_pos() is not None
+    backend = cursor_backend_name()
+    use_ext = backend in ("hyprctl", "swaymsg", "xdotool")
     stop = threading.Event()
 
-    if use_hypr:
+    if use_ext:
+        print(f"idle: слежу за мышью через {backend} (глобально)", flush=True)
+
         def poll():
             last = _hypr_pos()
             fails = 0
@@ -178,7 +174,7 @@ def run_idle_ambush(app):
                 pos = _hypr_pos()
                 if pos is None:
                     fails += 1
-                    if fails > 25:  # hyprctl мёртв ~5с — сдаёмся
+                    if fails > 25:  # бэкенд мёртв ~5с — сдаёмся
                         break
                     stop.wait(0.2)
                     continue
@@ -192,7 +188,7 @@ def run_idle_ambush(app):
         threading.Thread(target=poll, daemon=True).start()
         last_gdk = {"v": None}
     else:
-        print("idle: hyprctl нет — слежу за мышью через GDK (только над окном)",
+        print("idle: внешнего API курсора нет — слежу за мышью через GDK (только над окном)",
               flush=True)
         last_gdk = {"v": gdk_pos()}
 
@@ -205,7 +201,7 @@ def run_idle_ambush(app):
             if st["visible"]:
                 trigger("мышь")
                 return False
-        if not use_hypr:
+        if not use_ext:
             pos = gdk_pos()
             if pos is not None:
                 if last_gdk["v"] is None:
@@ -253,10 +249,11 @@ def run_idle_ambush(app):
 
         app.idle_active = True
         if not a.no_fullscreen:
-            # на время засады забираем клавиатуру себе
+            # на время засады забираем клавиатуру себе (только layer-shell)
             try:
-                GtkLayerShell.set_keyboard_mode(
-                    win, GtkLayerShell.KeyboardMode.EXCLUSIVE)
+                if GtkLayerShell is not None and getattr(app, "using_layershell", False):
+                    GtkLayerShell.set_keyboard_mode(
+                        win, GtkLayerShell.KeyboardMode.EXCLUSIVE)
             except Exception:
                 pass
         win.show_all()
@@ -294,11 +291,12 @@ def run_idle_ambush(app):
         except Exception:
             pass
         if not a.no_fullscreen:
-            # вернуть режим клавиатуры основного скрипта
+            # вернуть режим клавиатуры основного скрипта (только layer-shell)
             try:
-                GtkLayerShell.set_keyboard_mode(
-                    win, GtkLayerShell.KeyboardMode.NONE if app.click_through
-                    else GtkLayerShell.KeyboardMode.ON_DEMAND)
+                if GtkLayerShell is not None and getattr(app, "using_layershell", False):
+                    GtkLayerShell.set_keyboard_mode(
+                        win, GtkLayerShell.KeyboardMode.NONE if app.click_through
+                        else GtkLayerShell.KeyboardMode.ON_DEMAND)
             except Exception:
                 pass
             try:
