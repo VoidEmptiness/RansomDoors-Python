@@ -22,13 +22,24 @@ Everything the original RansomDoors has — except mine also has bugs :)
 
 ### Requirements
 
-- Linux + Wayland, preferably Hyprland (`hyprctl` to pick the focused monitor, otherwise — the monitor under the cursor).
-- Python 3 + `PyGObject` (GTK 3), `GtkLayerShell 0.1`, `Pillow` (GIF durations), `pycairo`.
-- Optional: `ffplay` (music loops) or `paplay`, `awww` (wallpaper), `gio` (coin icons).
+- Linux + Wayland/X11. Best on Hyprland and wlroots (Sway/labwc/wayfire/niri); also works on GNOME/Mutter, KDE/KWin, COSMIC, XFCE, i3 via fallback (see Notes).
+- Python 3 + `PyGObject` (GTK 3), `Pillow` (GIF durations), `pycairo`. `GtkLayerShell 0.1` is optional — used only on wlroots compositors, otherwise a fullscreen/maximize fallback is used.
+- Optional, auto-detected (first available wins):
+  - sound: `ffplay` → `pw-play` → `paplay` → `aplay`;
+  - wallpaper: `awww` → `swww` → `hyprpaper` (+`hyprctl`) → `swaybg` → `gsettings` (GNOME/MATE/Cinnamon) → `plasma-apply-wallpaperimage` (KDE) → `feh` (X11);
+  - cursor/monitor: `hyprctl` → `swaymsg` → `xdotool`, plus `wlr-randr` / `kscreen-doctor` for geometry, otherwise GDK fallback;
+  - `gio` (coin icons).
 
 ### Installation and Launch
 
-Not yet available, working on cross-platform support.
+```bash
+# system deps (Arch example)
+sudo pacman -S python-gobject gtk-layer-shell python-pillow python-cairo
+# optional backends (different for each system):
+# sudo pacman -S ffmpeg pipewire-pulse libpulse alsa-utils awww swww hyprpaper swaybg feh xdotool wlr-randr
+
+git clone https://github.com/VoidEmptiness/RansomDoors-Python && cd RansomDoors-Python && python3 RansomDoors.py
+```
 
 ### Payment
 
@@ -56,7 +67,8 @@ Total coin sum ≈ `--ransom-sum` (or `--coin-ransom`) + `--coin-extra 100`.
 --no-attack --no-loss --no-ransom --no-coins --no-floaters/--no-taunts
 --no-vignette --no-sound --no-wallpaper --no-coin-cleanup --no-coin-icons
 --no-fullscreen (960x540 window for debugging)
---no-click-through (overlay captures input)
+--fullscreen-mode auto|fullscreen|maximize (fallback without layer-shell; auto = maximize on GNOME/Mutter, fullscreen elsewhere)
+--click-through (default on) / --no-click-through (overlay captures input)
 ```
 
 Full list: `python3 RansomDoors.py --help`.
@@ -69,14 +81,15 @@ ransom_doors/
   __init__.py __main__.py
   app.py              # orchestration: window, stages, glitches, floaters, finals, DnD
   cli.py              # argparse
+  platform.py         # compositor detect, cursor, monitor geometry, layer-shell check
   idle.py             # starting ambush ransom_idle.png
   config.py           # constants, path candidates, denominations, sounds
   coins.py            # spawn .goldN/.crucifix, BFS traversal, tracking
-  gtkkit.py           # Sprite with stepping, fit_static, fake windows
+  gtkkit.py           # Sprite with stepping/cover, fit_static, fake windows (GtkLayerShell optional)
   ransom_note.py      # GTK replica of the note 560x400 + timer
-  sound.py            # SoundEngine (ffplay/paplay)
-  wallpaper.py        # swap/restore via awww
-  utils.py            # asset lookup, gif_info (PIL), pidfile, pick_monitor
+  sound.py            # SoundEngine (ffplay/pw-play/paplay/aplay)
+  wallpaper.py        # swap/restore via awww/swww/hyprpaper/swaybg/gsettings/plasma/feh
+  utils.py            # asset lookup, gif_info (PIL), pidfile, pick_monitor (via platform)
 assets/
   downloading.gif ransom_attack.gif loss_no_vignette.gif red_vignette.gif
   thankyou.gif repent.gif ransom_idle.png Gold.png stop_sign.png
@@ -88,8 +101,10 @@ assets/
 
 ### Notes
 
-- The project looks for assets among several candidates (`assets/...`, next to the code) and fails with a clear error only if `downloading.gif` or the glitches are missing.
+- The project looks for assets among several candidates (`assets/...`, next to the file) and fails with a clear error only if `downloading.gif` or the glitches are missing.
 - By default coins are placed in the real `Desktop/Documents/Downloads/Music/Pictures/Videos/Projects` — use `--coin-drawer` for experiments.
+- Overlay backend: layer-shell on wlroots (Hyprland/Sway/...); plain fullscreen on top everywhere else. On GNOME/Mutter real fullscreen is unredirected (transparency becomes black), so `auto` uses a borderless maximized window instead — override with `--fullscreen-mode fullscreen|maximize`.
+- Wallpaper restore on KDE Plasma and `feh`/`swaybg` is best-effort: Plasma does not expose the previous wallpaper, so you may need to restore it manually.
 - This is not malware: no encryption, no network, no persistence. Do not use it against other people without their consent.
 
 ## Credits
@@ -121,13 +136,24 @@ assets/
 
 ### Требования
 
-- Linux + Wayland, желательно Hyprland (`hyprctl` для выбора фокусного монитора, иначе — монитор под курсором).
-- Python 3 + `PyGObject` (GTK 3), `GtkLayerShell 0.1`, `Pillow` (длительности GIF), `pycairo`.
-- Опционально: `ffplay` (музыка-лупы) или `paplay`, `awww` (обои), `gio` (иконки монет).
+- Linux + Wayland/X11. Лучше всего на Hyprland и wlroots (Sway/labwc/wayfire/niri); также работает на GNOME/Mutter, KDE/KWin, COSMIC, XFCE, i3 через фолбэк (см. Примечания).
+- Python 3 + `PyGObject` (GTK 3), `Pillow` (длительности GIF), `pycairo`. `GtkLayerShell 0.1` опционален — используется только на wlroots-композиторах, иначе работает фолбэк fullscreen/maximize.
+- Опционально, авто-детект (побеждает первый найденный):
+  - звук: `ffplay` → `pw-play` → `paplay` → `aplay`;
+  - обои: `awww` → `swww` → `hyprpaper` (+`hyprctl`) → `swaybg` → `gsettings` (GNOME/MATE/Cinnamon) → `plasma-apply-wallpaperimage` (KDE) → `feh` (X11);
+  - курсор/монитор: `hyprctl` → `swaymsg` → `xdotool`, плюс `wlr-randr` / `kscreen-doctor` для геометрии, иначе GDK-фолбэк;
+  - `gio` (иконки монет).
 
 ### Установка и запуск
 
-Пока что нету, делаю кросплатформеность
+```bash
+# системные зависимости (пример для Arch)
+sudo pacman -S python-gobject gtk-layer-shell python-pillow python-cairo
+# опциональные бэкенды (под каждую систему свой):
+# sudo pacman -S ffmpeg pipewire-pulse libpulse alsa-utils awww swww hyprpaper swaybg feh xdotool wlr-randr
+
+git clone https://github.com/VoidEmptiness/RansomDoors-Python && cd RansomDoors-Python && python3 RansomDoors.py
+```
 
 ### Оплата
 
@@ -155,7 +181,8 @@ assets/
 --no-attack --no-loss --no-ransom --no-coins --no-floaters/--no-taunts
 --no-vignette --no-sound --no-wallpaper --no-coin-cleanup --no-coin-icons
 --no-fullscreen (окно 960x540 для отладки)
---no-click-through (оверлей ловит ввод)
+--fullscreen-mode auto|fullscreen|maximize (фолбэк без layer-shell; auto = maximize на GNOME/Mutter, иначе fullscreen)
+--click-through (включено по умолчанию) / --no-click-through (оверлей ловит ввод)
 ```
 
 Полный список: `python3 RansomDoors.py --help`.
@@ -168,14 +195,15 @@ ransom_doors/
   __init__.py __main__.py
   app.py              # оркестрация: окно, этапы, глитчи, флоатеры, финалы, DnD
   cli.py              # argparse
+  platform.py         # детект композитора, курсор, геометрия монитора, проверка layer-shell
   idle.py             # стартовая засада ransom_idle.png
   config.py           # константы, кандидаты путей, номиналы, звуки
   coins.py            # спавн .goldN/.crucifix, BFS-обход, трекинг
-  gtkkit.py           # Sprite со степпингом, fit_static, fake-окна
+  gtkkit.py           # Sprite со степпингом/cover, fit_static, fake-окна (GtkLayerShell опционален)
   ransom_note.py      # GTK-реплика записки 560x400 + таймер
-  sound.py            # SoundEngine (ffplay/paplay)
-  wallpaper.py        # swap/restore через awww
-  utils.py            # поиск ассетов, gif_info (PIL), pidfile, pick_monitor
+  sound.py            # SoundEngine (ffplay/pw-play/paplay/aplay)
+  wallpaper.py        # swap/restore через awww/swww/hyprpaper/swaybg/gsettings/plasma/feh
+  utils.py            # поиск ассетов, gif_info (PIL), pidfile, pick_monitor (через platform)
 assets/
   downloading.gif ransom_attack.gif loss_no_vignette.gif red_vignette.gif
   thankyou.gif repent.gif ransom_idle.png Gold.png stop_sign.png
@@ -187,8 +215,10 @@ assets/
 
 ### Примечания
 
-- Проект ищет ассеты по нескольким кандидатам (`assets/...`, рядом с кодом) и падает с понятной ошибкой только если нет `downloading.gif` или глитчей.
+- Проект ищет ассеты по нескольким кандидатам (`assets/...`, рядом с файлом) и падает с понятной ошибкой только если нет `downloading.gif` или глитчей.
 - Монеты по умолчанию кладутся в реальные `Desktop/Documents/Downloads/Music/Pictures/Videos/Projects` — для экспериментов используйте `--coin-drawer`.
+- Бэкенд оверлея: layer-shell на wlroots (Hyprland/Sway/...); иначе обычный fullscreen поверх всех. На GNOME/Mutter настоящий fullscreen снимается с композита (unredirect) и прозрачность становится чёрной, поэтому `auto` использует развёрнутое окно без рамок — переключите через `--fullscreen-mode fullscreen|maximize`.
+- Возврат обоев на KDE Plasma и `feh`/`swaybg` — по возможности: Plasma не отдаёт предыдущие обои, возможно придётся вернуть их вручную.
 - Это не малварь: шифрования, сети и персистентности нет. Не используйте против других людей без их согласия.
 
 ### Авторы
