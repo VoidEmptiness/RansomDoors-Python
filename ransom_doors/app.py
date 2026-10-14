@@ -1,6 +1,8 @@
 """Оркестрация оверлея: окно, этапы loss/stage1/глитчи, финалы, DnD, монеты."""
 import os
 import random
+import shlex
+import subprocess
 import sys
 import threading
 
@@ -691,9 +693,24 @@ class App:
                         "loss-final", self.W, cover=True)
         return False
 
+    def do_shutdown(self):
+        """Выключить комп при проигрыше. Просто запускает shutdown-команду."""
+        if getattr(self.a, "no_shutdown", False):
+            print("проигрыш: shutdown пропущен (--no-shutdown)", flush=True)
+            return
+        cmd = getattr(self.a, "shutdown_cmd", None) or "shutdown now"
+        print(f"проигрыш — выключаю комп: {cmd}", flush=True)
+        try:
+            subprocess.Popen(shlex.split(cmd))
+        except Exception as e:
+            print(f"не смог выключить комп ({cmd}): {e}",
+                  file=sys.stderr, flush=True)
+
     def play_final(self, tg, loops, label, target_w, framed=False, cover=False):
         if not tg or loops < 1:
             print(f"{label}: нет gif — выхожу", flush=True)
+            if label == "loss-final":
+                self.do_shutdown()
             self.Gtk.main_quit()
             return False
         _, loop_ms = gif_info(tg)
@@ -723,6 +740,8 @@ class App:
             if not self.state.get("quit"):
                 self.state["quit"] = True
                 print(f"{label} показан — выхожу", flush=True)
+                if label == "loss-final":
+                    self.do_shutdown()
                 self.Gtk.main_quit()
             return False
 

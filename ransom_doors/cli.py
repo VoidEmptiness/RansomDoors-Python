@@ -94,6 +94,10 @@ def build_parser():
                     help="пропустить loss_no_vignette.gif перед downloading")
     ap.add_argument("--loss-loops", type=int, default=2,
                     help="сколько раз проиграть loss_no_vignette (1 проход ~1с). По умолчанию 2.")
+    ap.add_argument("--no-shutdown", action="store_true",
+                    help="не выключать комп при проигрыше (по умолчанию выключает)")
+    ap.add_argument("--shutdown-cmd", default="shutdown now",
+                    help="команда выключения при проигрыше. По умолчанию 'shutdown now'.")
     ap.add_argument("--click-through", action="store_true", default=True,
                     help="клики проходят сквозь оверлей (по умолчанию включено)")
     ap.add_argument("--no-click-through", action="store_true",
